@@ -1,0 +1,52 @@
+name: DotOS ginkgo CI
+on: [push]
+env:
+  DEBIAN_FRONTEND: noninteractive
+
+jobs:
+  dotOS_CI:
+    runs-on: ubuntu-20.04
+
+    steps:
+    - name: Cleaning Up Runner
+      uses: rokibhasansagar/slimhub_actions@main
+
+    - name: Check system
+      run: df -h && echo "Cores = $(nproc --all)"
+
+    - name: Setup Env
+      run: |
+        apt-get --quiet update && apt-get --quiet install git aria2 apt-utils openjdk-8-jdk -y
+        echo "Configuring git"
+        git config --global user.email "$GIT_EMAIL"
+        git config --global user.name "Teguhpunya"
+        git config --global credential.helper "cache --timeout=7200"
+        echo "git identity setup successfully!"
+        git clone https://gitlab.com/teguhpunya-projects/scripts.git --depth=1 --branch master
+        bash scripts/setup/android_build_env.sh >/dev/null
+        bash scripts/setup/install_android_sdk.sh >/dev/null
+
+    - name: Setup Repo
+      run: |
+        echo "Current dir = $(pwd)"
+        mkdir dotos && cd dotos
+        repo init -u git://github.com/DotOS/manifest.git -b dot11
+        repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
+
+    - name: Compile
+      run: |
+        source build/envsetup.sh
+        lunch dot_ginkgo-user
+        make bacon
+
+    - name: Upload
+      run: |
+        BUILDFILE=$(find $(pwd)/out/target/product/ginkgo/*.zip 2>/dev/null)
+        UPLOAD_PATH=$(pwd)/out/target/product/ginkgo/upload/
+        mkdir $UPLOAD_PATH && cp $BUILDFILE $UPLOAD_PATH
+    
+    - name: Release Build 
+      uses: actions/upload-artifact@v2
+      with:
+        name: test-build.zip
+        path: out/target/product/ginkgo/upload/
