@@ -1,0 +1,76 @@
+version: 2.1
+
+commands:
+  check_system:
+    steps:
+      - run:
+          name: Check system
+          command: df -h && echo "Cores = $(nproc --all)"
+  setup_env:
+    steps:
+      - run:
+          name: Setup environment
+          command: |
+            apt-get --quiet update && apt-get --quiet install git aria2 apt-utils openjdk-8-jdk -y
+            echo "Configuring git"
+            git config --global user.email "$GIT_EMAIL"
+            git config --global user.name "Teguhpunya"
+            git config --global credential.helper "cache --timeout=7200"
+            echo "git identity setup successfully!"
+            git clone https://gitlab.com/teguhpunya-projects/scripts.git --depth=1 --branch circleci
+            bash scripts/setup/android_build_env.sh >/dev/null
+            bash scripts/setup/install_android_sdk.sh >/dev/null
+
+  setup_repos:
+    steps:
+      - run:
+          name: Setup repos
+          command: |
+            echo "Current dir = $(pwd)"
+            mkdir dotos && cd dotos
+            repo init -u git://github.com/DotOS/manifest.git -b dot11
+            repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
+            
+  build:
+    steps:
+      - run:
+          name: Build
+          command: |
+            source build/envsetup.sh
+            export WITH_GAPPS=true
+            lunch dot_ginkgo-user
+            make bacon            
+            BUILDFILE=$(find $(pwd)/out/target/product/ginkgo/dotOS-*.zip 2>/dev/null)
+            UPLOAD_PATH=$(pwd)/out/target/product/ginkgo/upload/
+            mkdir $UPLOAD_PATH && cp $BUILDFILE $UPLOAD_PATH
+
+executors:
+  machine-executor:
+    machine:
+      image: ubuntu-2004:202010-01
+
+  docker-executor:
+    docker:
+      - image: ubuntu:focal
+
+jobs:
+  build-dotos:
+    executor: docker-executor
+    working_directory: ~/project
+    environment:
+      DEBIAN_FRONTEND: noninteractive
+
+    steps:
+      - checkout
+      - check_system
+      - setup_env
+      - setup_repos
+      - build
+      - store_artifacts:
+          path: out/target/product/ginkgo/upload/
+
+workflows:
+  dotos:
+    jobs:
+      - build-dotos:
+          context: orangefox
